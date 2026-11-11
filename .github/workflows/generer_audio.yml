@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       voix:
-        description: 'Voix du narrateur Gemini'
+        description: 'Voix du narrateur'
         required: true
         default: 'Fenrir'
         type: choice
@@ -30,23 +30,14 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Installer FFmpeg (rapide sans apt-get)
-        run: |
-          sudo curl -L https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz -o ffmpeg.tar.xz
-          sudo tar -xf ffmpeg.tar.xz
-          sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /usr/local/bin/
-          sudo mv ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
-          rm -rf ffmpeg.tar.xz ffmpeg-master-latest-linux64-gpl
-
       - name: Installer les dépendances Python
         run: |
           pip install --upgrade pip
-          pip install requests beautifulsoup4 pydub python-dotenv
+          pip install -r requirements.txt
 
       - name: Extraire, narrer et envoyer sur Telegram
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python narrateur.py "${{ inputs.url }}" "${{ inputs.voix }}"
+          python narrateur.py "${{ inputs.url }}"
