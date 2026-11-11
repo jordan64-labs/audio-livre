@@ -54,7 +54,7 @@ def extraire_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    # Découpage en blocs d'environ 1500 caractères pour respecter les limites de l'API audio
+    # Découpage en blocs d'environ 1500 caractères pour respecter les limites audio
     chunks = []
     bloc_actuel = f"{titre}.\n\n"
 
@@ -72,7 +72,7 @@ def extraire_article(url):
 
 
 def generer_segment_audio(client, texte, voix):
-    """Appelle Gemini 2.5 Flash pour générer l'audio narratif."""
+    """Appelle Gemini 2.5 Flash pour générer l'audio narratif avec les types officiels."""
     prompt = (
         "Tu es un narrateur de livre audio professionnel. "
         "Lis le texte suivant en français d'une voix posée, chaleureuse, naturelle et expressive. "
@@ -84,19 +84,19 @@ def generer_segment_audio(client, texte, voix):
 
     for tentative in range(3):
         try:
-            # Correction de la structure de configuration pour la bibliothèque google-genai
+            # Utilisation de la structure d'objets types correcte pour la SDK google-genai
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_modalities=["AUDIO"],
-                    speech_config={
-                        "voice_config": {
-                            "prebuilt_voice_config": {
-                                "voice_name": voix
-                            }
-                        }
-                    }
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=voix
+                            )
+                        )
+                    )
                 ),
             )
 
@@ -130,7 +130,7 @@ def envoyer_sur_telegram(chemin_mp3, titre):
 
 def main():
     if not all([GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-        print("❌ Erreur : Vérifiez vos secrets GitHub (GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).")
+        print("❌ Erreur : Vérifiez vos secrets GitHub.")
         sys.exit(1)
 
     if len(sys.argv) < 2 or not sys.argv[1].strip():
@@ -147,7 +147,7 @@ def main():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     audio_complet = AudioSegment.empty()
-    pause_courte = AudioSegment.silent(duration=500)  # 0.5s de respiration
+    pause_courte = AudioSegment.silent(duration=500)
 
     print("🎙️ 2/4 Enregistrement par le narrateur Gemini...")
     for i, chunk in enumerate(chunks, 1):
@@ -156,7 +156,7 @@ def main():
         segment = AudioSegment.from_file(io.BytesIO(audio_bytes))
         audio_complet += segment + pause_courte
         if i < len(chunks):
-            time.sleep(2)  # Pause pour éviter de saturer les quotas de l'API
+            time.sleep(2)
 
     nom_mp3 = nettoyer_nom_fichier(titre)
     print(f"💾 3/4 Assemblage et exportation MP3 ({nom_mp3})...")
