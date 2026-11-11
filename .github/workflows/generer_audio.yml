@@ -1,0 +1,47 @@
+name: Générer un Audio-Livre
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Lien de l article ou de la biographie (wol.jw.org)'
+        required: true
+        type: string
+      voix:
+        description: 'Voix du narrateur Gemini'
+        required: true
+        default: 'Fenrir'
+        type: choice
+        options:
+          - Fenrir
+          - Aoede
+          - Charon
+          - Kore
+
+jobs:
+  build-audiobook:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Récupérer le dépôt
+        uses: actions/checkout@v4
+
+      - name: Configurer Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Installer FFmpeg (assemblage audio)
+        run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Installer les dépendances Python
+        run: |
+          pip install -r requirements.txt
+
+      - name: Extraire, narrer et envoyer sur Telegram
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python narrateur.py "${{ inputs.url }}" "${{ inputs.voix }}"
