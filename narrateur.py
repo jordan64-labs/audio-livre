@@ -1,31 +1,31 @@
 import os
 import sys
-import io
+import asyncio
 import re
-import time
 import requests
 from bs4 import BeautifulSoup
-from pydub import AudioSegment
+import edge_tts
 from dotenv import load_dotenv
 
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
-
 
 def nettoyer_nom_fichier(titre):
     propre = re.sub(r'[\\/*?:"<>|]', "", titre)
     propre = propre.strip().replace(" ", "_")
     return (propre[:50] or "audio_livre") + ".mp3"
 
-
 def extraire_article(url):
+    """Extrait le texte de l'article ou de la biographie sur wol.jw.org."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    resp = requests.get(url, headers=headers, timeout=20)
-    resp.raise_for_status()
-    resp.encoding = "utf-8"
+    try:
+        resp = requests.get(url, headers=headers, timeout=20)
+        resp.raise_for_status()
+        resp.encoding = "utf-8"
+    except Exception as e:
+        raise RuntimeError(f"Impossible de télécharger la page : {e}")
 
     soup = BeautifulSoup(resp.text, "html.parser")
     article = soup.find("article") or soup.find("div", class_="bodyTxt") or soup.find("main")
@@ -43,6 +43,7 @@ def extraire_article(url):
             continue
 
         texte = el.get_text(" ", strip=True)
+        # Nettoyage des appels de notes et illustrations
         texte = re.sub(r'[\*\+#]', '', texte).strip()
         if not texte or texte.startswith(("[Photo", "[Illustration", "[Schéma", "[Carte")):
             continue
@@ -52,136 +53,67 @@ def extraire_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    chunks = []
-    bloc_actuel = f"{titre}.\n\n"
+    texte_complet = f"{titre}.\n\n" + "\n\n".join(paragraphes)
+    return titre, texte_complet
 
-    for p in paragraphes:
-        if len(bloc_actuel) + len(p) > 1500:
-            chunks.append(bloc_actuel.strip())
-            bloc_actuel = p + "\n\n"
-        else:
-            bloc_actuel += p + "\n\n"
-
-    if bloc_actuel.strip():
-        chunks.append(bloc_actuel.strip())
-
-    return titre, chunks
-
-
-def generer_segment_audio_api(texte, voix):
-    # Utilisation du modèle gemini-2.5-flash stable
-    url_api = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-    
-    prompt = (
-        "Tu es un narrateur de livre audio professionnel. "
-        "Lis le texte suivant en français d'une voix posée, chaleureuse, naturelle et expressive. "
-        "Respecte les pauses de ponctuation. "
-        "IMPORTANT : Lis strictement et uniquement le texte fourni ci-dessous, mot à mot, "
-        "sans ajouter aucune phrase d'introduction ni de conclusion :\n\n"
-        f"{texte}"
+async def text_to_speech(text, output_mp3="audio_livre.mp3"):
+    """Génère l'audio de haute qualité avec Edge TTS (voix naturelle française)."""
+    print("🎙️ Génération de l'audio avec Edge TTS (Studio Podcast)...")
+    communicate = edge_tts.Communicate(
+        text,
+        voice="fr-FR-RemyMultilingualNeural",
+        rate="+0%",
+        pitch="-1Hz"
     )
+    await communicate.save(output_mp3)
+    print(f"✅ Fichier audio généré avec succès : {output_mp3}")
+    return output_mp3
 
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }],
-        "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-                "voiceConfig": {
-                    "prebuiltVoiceConfig": {
-                        "voiceName": voix
-                    }
-                }
-            }
-        }
-    }
-
-    headers = {"Content-Type": "application/json"}
-
-    for tentative in range(3):
-        try:
-            resp = requests.post(url_api, json=payload, headers=headers, timeout=60)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Erreur API HTTP {resp.status_code}: {resp.text}")
-            
-            data = resp.json()
-            candidates = data.get("candidates", [])
-            if not candidates:
-                raise RuntimeError("Aucun candidat renvoyé par l'API.")
-            
-            parts = candidates[0].get("content", {}).get("parts", [])
-            for part in parts:
-                inline_data = part.get("inlineData") or part.get("inline_data")
-                if inline_data and "data" in inline_data:
-                    import base64
-                    return base64.b64decode(inline_data["data"])
-            
-            raise RuntimeError("Données audio introuvables dans la réponse de l'API.")
-
-        except Exception as e:
-            print(f"  ⚠️ Avertissement (tentative {tentative + 1}/3) : {e}")
-            if tentative < 2:
-                time.sleep(5)
-            else:
-                raise RuntimeError(f"Échec de la génération audio après 3 essais : {e}")
-
-
-def envoyer_sur_telegram(chemin_mp3, titre):
+def envoyer_telegram(file_path, titre):
+    """Envoie l'audio sur Telegram sous forme de message vocal/audio."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
-    with open(chemin_mp3, "rb") as audio_file:
+    with open(file_path, 'rb') as audio_file:
         payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "title": titre[:60],
-            "performer": "Narrateur Gemini",
-            "caption": f"🎧 <b>{titre}</b>",
-            "parse_mode": "HTML"
+            'chat_id': TELEGRAM_CHAT_ID,
+            'title': titre[:60],
+            'performer': 'Audio-Livre WOL',
+            'caption': f"🎧 <b>{titre}</b>",
+            'parse_mode': "HTML"
         }
-        files = {"audio": audio_file}
+        files = {'audio': audio_file}
         resp = requests.post(url, data=payload, files=files, timeout=120)
         return resp.json()
 
-
-def main():
-    if not all([GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-        print("❌ Erreur : Vérifiez vos secrets GitHub.")
+async def main_async():
+    if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
+        print("❌ Erreur : TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID sont requis dans les secrets.")
         sys.exit(1)
 
     if len(sys.argv) < 2 or not sys.argv[1].strip():
-        print("Usage : python narrateur.py <URL_ARTICLE> [VOIX]")
+        print("Usage : python narrateur.py <URL_ARTICLE>")
         sys.exit(1)
 
     url = sys.argv[1].strip()
-    voix = sys.argv[2].strip() if len(sys.argv) > 2 else "Fenrir"
 
-    print(f"📖 1/4 Analyse et extraction de : {url}")
-    titre, chunks = extraire_article(url)
-    print(f"   Titre : {titre}")
-    print(f"   Découpage : {len(chunks)} chapitres à enregistrer avec la voix '{voix}'.")
-
-    audio_complet = AudioSegment.empty()
-    pause_courte = AudioSegment.silent(duration=500)
-
-    print("🎙️ 2/4 Enregistrement par le narrateur Gemini...")
-    for i, chunk in enumerate(chunks, 1):
-        print(f"   -> Enregistrement de la partie {i}/{len(chunks)}...")
-        audio_bytes = generer_segment_audio_api(chunk, voix)
-        segment = AudioSegment.from_file(io.BytesIO(audio_bytes))
-        audio_complet += segment + pause_courte
-        if i < len(chunks):
-            time.sleep(2)
+    print(f"📖 1/3 Analyse et extraction de l'article : {url}")
+    titre, texte = extraire_article(url)
+    print(f"   Titre trouvé : {titre}")
+    print(f"   Volume du texte : {len(texte)} caractères.")
 
     nom_mp3 = nettoyer_nom_fichier(titre)
-    print(f"💾 3/4 Assemblage et exportation MP3 ({nom_mp3})...")
-    audio_complet.export(nom_mp3, format="mp3", bitrate="128k")
 
-    print("📲 4/4 Envoi du livre audio sur Telegram...")
-    res = envoyer_sur_telegram(nom_mp3, titre)
+    print("🎙️ 2/3 Synthèse vocale en cours...")
+    await text_to_speech(texte, nom_mp3)
+
+    print("📲 3/3 Envoi de l'audio-livre sur Telegram...")
+    res = envoyer_telegram(nom_mp3, titre)
     if res.get("ok"):
-        print("✅ Terminé ! L'audio-livre Gemini est disponible sur votre Telegram.")
+        print("✅ Terminé ! L'audio-livre a été envoyé avec succès sur Telegram.")
     else:
         raise RuntimeError(f"Erreur d'envoi Telegram : {res}")
 
+def main():
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
     main()
