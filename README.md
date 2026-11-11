@@ -1,6 +1,14 @@
 # 🎧 Audio-Livre WOL vers Telegram
 
+[![Lancer la génération](https://img.shields.io/badge/GitHub%20Actions-Lancer%20la%20génération-blue?style=for-the-badge&logo=githubactions)](../../actions/workflows/generer_audio.yml)
+
 Ce dépôt contient un script d'automatisation (GitHub Actions) permettant de télécharger un article ou une biographie depuis [wol.jw.org](https://wol.jw.org), de le convertir en un fichier audio MP3 de haute qualité, et de l'envoyer directement sur un canal ou une discussion Telegram.
+
+---
+
+## ⚡ Accès Rapide
+
+👉 **[Clique ici pour lancer la génération d'un livre audio](../../actions/workflows/generer_audio.yml)**
 
 ---
 
@@ -32,7 +40,4 @@ Pour que le script fonctionne, configure les secrets suivants dans ton dépôt (
 
 ## 🛠️ Utilisation
 
-1. Rends-toi dans l'onglet **Actions** de ton dépôt GitHub.
-2. Sélectionne le workflow **Générer un Audio-Livre**.
-3. Clique sur **Run workflow**.
-4. Renseigne l'URL de l'article WOL et choisis la voix de ton narrateur, puis valide !
+1. Rends
