@@ -18,21 +18,16 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 
 def nettoyer_nom_fichier(titre):
-    """Crée un nom de fichier propre à partir du titre de l'article."""
     propre = re.sub(r'[\\/*?:"<>|]', "", titre)
     propre = propre.strip().replace(" ", "_")
     return (propre[:50] or "audio_livre") + ".mp3"
 
 
 def extraire_article(url):
-    """Récupère l'article et le découpe en sections adaptées à la synthèse Gemini."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-    try:
-        resp = requests.get(url, headers=headers, timeout=20)
-        resp.raise_for_status()
-        resp.encoding = "utf-8"
-    except Exception as e:
-        raise RuntimeError(f"Impossible de télécharger la page : {e}")
+    resp = requests.get(url, headers=headers, timeout=20)
+    resp.raise_for_status()
+    resp.encoding = "utf-8"
 
     soup = BeautifulSoup(resp.text, "html.parser")
     article = soup.find("article") or soup.find("div", class_="bodyTxt") or soup.find("main")
@@ -46,12 +41,10 @@ def extraire_article(url):
     paragraphes = []
     for el in article.find_all(["h2", "h3", "p"]):
         classes = el.get("class", [])
-        # Exclure les références techniques, versets d'en-tête répétitifs ou légendes photos
         if any(c in classes for c in ["caption", "pubRef", "qu"]):
             continue
 
         texte = el.get_text(" ", strip=True)
-        # Nettoyer les appels de notes (*, +, #) et crochets d'illustrations
         texte = re.sub(r'[\*\+#]', '', texte).strip()
         if not texte or texte.startswith(("[Photo", "[Illustration", "[Schéma", "[Carte")):
             continue
@@ -61,12 +54,12 @@ def extraire_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    # Regrouper les paragraphes en blocs d'environ 1600 caractères
+    # Découpage en blocs d'environ 1500 caractères pour respecter les limites de l'API audio
     chunks = []
     bloc_actuel = f"{titre}.\n\n"
 
     for p in paragraphes:
-        if len(bloc_actuel) + len(p) > 1600:
+        if len(bloc_actuel) + len(p) > 1500:
             chunks.append(bloc_actuel.strip())
             bloc_actuel = p + "\n\n"
         else:
@@ -79,11 +72,10 @@ def extraire_article(url):
 
 
 def generer_segment_audio(client, texte, voix):
-    """Appelle Gemini 2.5 Flash avec l'instruction système de narrateur."""
+    """Appelle Gemini 2.5 Flash pour générer l'audio narratif."""
     prompt = (
         "Tu es un narrateur de livre audio professionnel. "
-        "Lis le texte suivant en français d'une voix posée, chaleureuse, naturelle et expressive, "
-        "comme si tu racontais une biographie ou un récit vécu. "
+        "Lis le texte suivant en français d'une voix posée, chaleureuse, naturelle et expressive. "
         "Respecte les pauses de ponctuation. "
         "IMPORTANT : Lis strictement et uniquement le texte fourni ci-dessous, mot à mot, "
         "sans ajouter aucune phrase d'introduction ni de conclusion :\n\n"
@@ -92,18 +84,19 @@ def generer_segment_audio(client, texte, voix):
 
     for tentative in range(3):
         try:
+            # Correction de la structure de configuration pour la bibliothèque google-genai
             response = client.models.generate_content(
                 model="gemini-2.5-flash",
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_modalities=["AUDIO"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voix
-                            )
-                        )
-                    ),
+                    speech_config={
+                        "voice_config": {
+                            "prebuilt_voice_config": {
+                                "voice_name": voix
+                            }
+                        }
+                    }
                 ),
             )
 
@@ -121,13 +114,12 @@ def generer_segment_audio(client, texte, voix):
 
 
 def envoyer_sur_telegram(chemin_mp3, titre):
-    """Envoie l'audio-livre final sur Telegram."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
     with open(chemin_mp3, "rb") as audio_file:
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
             "title": titre[:60],
-            "performer": "Audio-Livre (Gemini)",
+            "performer": "Narrateur Gemini",
             "caption": f"🎧 <b>{titre}</b>",
             "parse_mode": "HTML"
         }
@@ -138,7 +130,7 @@ def envoyer_sur_telegram(chemin_mp3, titre):
 
 def main():
     if not all([GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID]):
-        print("❌ Erreur : Vérifiez que GEMINI_API_KEY, TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID sont configurés.")
+        print("❌ Erreur : Vérifiez vos secrets GitHub (GEMINI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID).")
         sys.exit(1)
 
     if len(sys.argv) < 2 or not sys.argv[1].strip():
@@ -155,17 +147,16 @@ def main():
 
     client = genai.Client(api_key=GEMINI_API_KEY)
     audio_complet = AudioSegment.empty()
-    pause_courte = AudioSegment.silent(duration=600)  # 0.6s de respiration entre les blocs
+    pause_courte = AudioSegment.silent(duration=500)  # 0.5s de respiration
 
     print("🎙️ 2/4 Enregistrement par le narrateur Gemini...")
     for i, chunk in enumerate(chunks, 1):
-        print(f"   -> Enregistrement de la partie {i}/{len(chunks)} ({len(chunk)} caractères)...")
+        print(f"   -> Enregistrement de la partie {i}/{len(chunks)}...")
         audio_bytes = generer_segment_audio(client, chunk, voix)
         segment = AudioSegment.from_file(io.BytesIO(audio_bytes))
         audio_complet += segment + pause_courte
-        # Pause légère pour respecter la limite de requêtes par minute de l'API gratuite
         if i < len(chunks):
-            time.sleep(2)
+            time.sleep(2)  # Pause pour éviter de saturer les quotas de l'API
 
     nom_mp3 = nettoyer_nom_fichier(titre)
     print(f"💾 3/4 Assemblage et exportation MP3 ({nom_mp3})...")
@@ -174,7 +165,7 @@ def main():
     print("📲 4/4 Envoi du livre audio sur Telegram...")
     res = envoyer_sur_telegram(nom_mp3, titre)
     if res.get("ok"):
-        print("✅ Terminé ! L'audio-livre est disponible sur votre Telegram.")
+        print("✅ Terminé ! L'audio-livre Gemini est disponible sur votre Telegram.")
     else:
         raise RuntimeError(f"Erreur d'envoi Telegram : {res}")
 
