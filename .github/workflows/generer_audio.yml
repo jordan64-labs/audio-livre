@@ -36,7 +36,8 @@ jobs:
 
       - name: Installer les dépendances Python
         run: |
-          pip install -r requirements.txt
+          pip install --upgrade pip
+          pip install google-genai requests beautifulsoup4 pydub python-dotenv
 
       - name: Extraire, narrer et envoyer sur Telegram
         env:
