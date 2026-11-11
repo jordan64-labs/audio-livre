@@ -1,0 +1,9 @@
+# Environnement et secrets
+.env
+venv/
+__pycache__/
+
+# Fichiers audio générés
+*.mp3
+*.wav
+*.ogg
