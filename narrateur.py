@@ -52,7 +52,6 @@ def extraire_et_decouper_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    # Regroupement en blocs d'environ 1800 caractères max pour aller très vite
     chunks = []
     bloc_actuel = f"Titre de l'article : {titre}.\n\n"
 
@@ -81,13 +80,13 @@ async def generer_audio_morceau(texte, output_path):
 def envoyer_telegram(file_path, titre):
     """Envoie l'audio sur Telegram sous forme de message audio."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
-    with open(file_path, 'rb') as audio_file:
+    with open(file_path, "rb") as audio_file:
         payload = {
-            'chat_id': TELEGRAM_CHAT_ID,
-            'title': titre[:60],
-            'performer': 'Audio-Livre WOL',
-            'caption': f"🎧 <b>{titre}</b>",
-            'parse_mode": "HTML"
+            "chat_id": TELEGRAM_CHAT_ID,
+            "title": titre[:60],
+            "performer": "Audio-Livre WOL",
+            "caption": f"🎧 <b>{titre}</b>",
+            "parse_mode": "HTML"
         }
         files = {"audio": audio_file}
         resp = requests.post(url, data=payload, files=files, timeout=120)
