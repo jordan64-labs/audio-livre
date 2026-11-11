@@ -1,26 +1,14 @@
 name: Générer un Audio-Livre
 
 on:
-  workflow_dispatch:
-    inputs:
-      url:
-        description: 'Lien de l article ou de la biographie (wol.jw.org)'
-        required: true
-        type: string
-      voix:
-        description: 'Voix du narrateur Gemini'
-        required: true
-        default: 'Fenrir'
-        type: choice
-        options:
-          - Fenrir
-          - Aoede
-          - Charon
-          - Kore
+  workflow_dispatch: # Permet de lancer le workflow manuellement depuis l'onglet Actions
+  schedule:
+    - cron: '0 4 * * *' # Optionnel : exécution automatique quotidienne si besoin
 
 jobs:
   build-audiobook:
     runs-on: ubuntu-latest
+
     steps:
       - name: Récupérer le dépôt
         uses: actions/checkout@v4
@@ -29,22 +17,23 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+          cache: 'pip'
 
       - name: Installer FFmpeg (assemblage audio)
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg
+        uses: FedericoCarboni/setup-ffmpeg@v3
+        with:
+          # Utilise la dernière version stable de FFmpeg pré-compilée
+          ffmpeg-version: 'release'
 
       - name: Installer les dépendances Python
         run: |
-          pip install --upgrade pip
-          pip install requests beautifulsoup4 pydub python-dotenv
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Extraire, narrer et envoyer sur Telegram
         env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: |
-          python narrateur.py "${{ inputs.url }}" "${{ inputs.voix }}"
+          python main.py
