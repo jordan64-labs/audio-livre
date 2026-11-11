@@ -17,8 +17,8 @@ def nettoyer_nom_fichier(titre):
     propre = propre.strip().replace(" ", "_")
     return (propre[:50] or "audio_livre") + ".mp3"
 
-def extraire_article(url):
-    """Extrait le texte de l'article ou de la biographie sur wol.jw.org."""
+def extraire_paragraphes_article(url):
+    """Extrait et découpe l'article en une liste de paragraphes propres."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     try:
         resp = requests.get(url, headers=headers, timeout=20)
@@ -36,41 +36,36 @@ def extraire_article(url):
     h1 = article.find("h1") or soup.find("h1")
     titre = h1.get_text(strip=True) if h1 else "Biographie Audio"
 
-    paragraphes = []
+    paragraphes = [f"Titre : {titre}."]
     for el in article.find_all(["h2", "h3", "p"]):
         classes = el.get("class", [])
         if any(c in classes for c in ["caption", "pubRef", "qu"]):
             continue
 
         texte = el.get_text(" ", strip=True)
-        # Nettoyage des appels de notes et illustrations
         texte = re.sub(r'[\*\+#]', '', texte).strip()
         if not texte or texte.startswith(("[Photo", "[Illustration", "[Schéma", "[Carte")):
             continue
 
         paragraphes.append(texte)
 
-    if not paragraphes:
+    if len(paragraphes) <= 1:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    texte_complet = f"{titre}.\n\n" + "\n\n".join(paragraphes)
-    return titre, texte_complet
+    return titre, paragraphes
 
-async def text_to_speech(text, output_mp3="audio_livre.mp3"):
-    """Génère l'audio de haute qualité avec Edge TTS (voix naturelle française)."""
-    print("🎙️ Génération de l'audio avec Edge TTS (Studio Podcast)...")
+async def generer_audio_morceau(texte, output_path):
+    """Génère l'audio d'un bloc de texte avec Edge TTS."""
     communicate = edge_tts.Communicate(
-        text,
+        texte,
         voice="fr-FR-RemyMultilingualNeural",
         rate="+0%",
         pitch="-1Hz"
     )
-    await communicate.save(output_mp3)
-    print(f"✅ Fichier audio généré avec succès : {output_mp3}")
-    return output_mp3
+    await communicate.save(output_path)
 
 def envoyer_telegram(file_path, titre):
-    """Envoie l'audio sur Telegram sous forme de message vocal/audio."""
+    """Envoie l'audio sur Telegram sous forme de message audio."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
     with open(file_path, 'rb') as audio_file:
         payload = {
@@ -95,17 +90,39 @@ async def main_async():
 
     url = sys.argv[1].strip()
 
-    print(f"📖 1/3 Analyse et extraction de l'article : {url}")
-    titre, texte = extraire_article(url)
+    print(f"📖 1/4 Analyse et extraction de l'article : {url}")
+    titre, paragraphes = extraire_paragraphes_article(url)
     print(f"   Titre trouvé : {titre}")
-    print(f"   Volume du texte : {len(texte)} caractères.")
+    print(f"   Nombre de blocs à synthétiser : {len(paragraphes)}")
 
     nom_mp3 = nettoyer_nom_fichier(titre)
+    temp_files = []
 
-    print("🎙️ 2/3 Synthèse vocale en cours...")
-    await text_to_speech(texte, nom_mp3)
+    print("🎙️ 2/4 Synthèse vocale bloc par bloc...")
+    for i, p in enumerate(paragraphes):
+        if len(p.strip()) < 3:
+            continue
+        temp_file = f"temp_{i}.mp3"
+        print(f"   -> Synthèse de la partie {i+1}/{len(paragraphes)}...")
+        try:
+            await generer_audio_morceau(p, temp_file)
+            temp_files.append(temp_file)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"   ⚠️ Avertissement sur un paragraphe : {e}")
 
-    print("📲 3/3 Envoi de l'audio-livre sur Telegram...")
+    if not temp_files:
+        raise RuntimeError("Aucun fichier audio n'a pu être généré.")
+
+    print("💾 3/4 Assemblage des fichiers audio...")
+    # Concaténation binaire simple des MP3
+    with open(nom_mp3, "wb") as outfile:
+        for f in temp_files:
+            with open(f, "rb") as infile:
+                outfile.write(infile.read())
+            os.remove(f)
+
+    print("📲 4/4 Envoi de l'audio-livre sur Telegram...")
     res = envoyer_telegram(nom_mp3, titre)
     if res.get("ok"):
         print("✅ Terminé ! L'audio-livre a été envoyé avec succès sur Telegram.")
