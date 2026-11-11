@@ -52,7 +52,6 @@ def extraire_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    # Découpage en blocs d'environ 1500 caractères
     chunks = []
     bloc_actuel = f"{titre}.\n\n"
 
@@ -70,7 +69,7 @@ def extraire_article(url):
 
 
 def generer_segment_audio_api(texte, voix):
-    """Appelle directement l'API REST de Gemini avec le payload JSON brut pour l'audio."""
+    # Utilisation du modèle gemini-2.5-flash stable
     url_api = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
     
     prompt = (
@@ -107,7 +106,6 @@ def generer_segment_audio_api(texte, voix):
                 raise RuntimeError(f"Erreur API HTTP {resp.status_code}: {resp.text}")
             
             data = resp.json()
-            # Extraction des données audio en base64 depuis la réponse JSON brute
             candidates = data.get("candidates", [])
             if not candidates:
                 raise RuntimeError("Aucun candidat renvoyé par l'API.")
@@ -129,7 +127,7 @@ def generer_segment_audio_api(texte, voix):
                 raise RuntimeError(f"Échec de la génération audio après 3 essais : {e}")
 
 
-def envoyer_rer_telegram(chemin_mp3, titre):
+def envoyer_sur_telegram(chemin_mp3, titre):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
     with open(chemin_mp3, "rb") as audio_file:
         payload = {
@@ -178,7 +176,7 @@ def main():
     audio_complet.export(nom_mp3, format="mp3", bitrate="128k")
 
     print("📲 4/4 Envoi du livre audio sur Telegram...")
-    res = envoyer_rer_telegram(nom_mp3, titre)
+    res = envoyer_sur_telegram(nom_mp3, titre)
     if res.get("ok"):
         print("✅ Terminé ! L'audio-livre Gemini est disponible sur votre Telegram.")
     else:
