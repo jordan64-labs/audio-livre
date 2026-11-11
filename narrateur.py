@@ -12,13 +12,62 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Correspondance des noms de voix conviviaux vers les voix Edge
 VOICES_MAP = {
-    "Fenrir": "fr-FR-HenriNeural",               # Masculine, posée, grave
-    "Aoede": "fr-FR-DeniseNeural",              # Féminine, calme
-    "Charon": "fr-FR-RemyMultilingualNeural",    # Masculine, profonde
-    "Kore": "fr-FR-VivienneMultilingualNeural"  # Féminine, dynamique
+    "Fenrir": "fr-FR-HenriNeural",
+    "Aoede": "fr-FR-DeniseNeural",
+    "Charon": "fr-FR-RemyMultilingualNeural",
+    "Kore": "fr-FR-VivienneMultilingualNeural"
 }
+
+LIVRES_BIBLIQUES = {
+    "Gen": "Genèse", "Ex": "Exode", "Lév": "Lévitique", "Lev": "Lévitique", "Nomb": "Nombres", "Nom": "Nombres",
+    "Deut": "Deutéronome", "Jos": "Josué", "Jug": "Juges", "Ruth": "Ruth", "1 Sam": "1 Samuel", "2 Sam": "2 Samuel",
+    "1 Rois": "1 Rois", "2 Rois": "2 Rois", "1 Chron": "1 Chroniques", "2 Chron": "2 Chroniques", "Esd": "Esdras",
+    "Néh": "Néhémie", "Neh": "Néhémie", "Esth": "Esther", "Job": "Job", "Ps": "Psaume", "Psa": "Psaume",
+    "Prov": "Proverbes", "Eccl": "Ecclésiaste", "Chant": "Chant de Salomon", "Is": "Isaïe", "Isa": "Isaïe",
+    "Jér": "Jérémie", "Jer": "Jérémie", "Lam": "Lamentations", "Ézéch": "Ézéchiel", "Ezech": "Ézéchiel",
+    "Dan": "Daniel", "Os": "Osée", "Joël": "Joël", "Joel": "Joël", "Amos": "Amos", "Abd": "Abdias",
+    "Jon": "Jonas", "Mich": "Michée", "Nah": "Nahum", "Hab": "Habacuc", "Soph": "Sophonie", "Agg": "Aggée",
+    "Zach": "Zacharie", "Mal": "Malachie", "Mat": "Matthieu", "Matt": "Matthieu", "Marc": "Marc", "Luc": "Luc",
+    "Jean": "Jean", "Actes": "Actes", "Rom": "Romains", "1 Cor": "1 Corinthiens", "2 Cor": "2 Corinthiens",
+    "Gal": "Galates", "Éph": "Éphésiens", "Eph": "Éphésiens", "Phil": "Philippiens", "Col": "Colossiens",
+    "1 Thess": "1 Thessaloniciens", "2 Thess": "2 Thessaloniciens", "1 Tim": "1 Timothée", "2 Tim": "2 Timothée",
+    "Tite": "Tite", "Philém": "Philémon", "Philem": "Philémon", "Héb": "Hébreux", "Heb": "Hébreux",
+    "Jacq": "Jacques", "1 Pierre": "1 Pierre", "2 Pierre": "2 Pierre", "1 Jean": "1 Jean", "2 Jean": "2 Jean",
+    "3 Jean": "3 Jean", "Jude": "Jude", "Rév": "Révélation", "Rev": "Révélation", "Apoc": "Apocalypse"
+}
+
+NOMS_LIVRES_REGEX = "|".join(re.escape(k) for k in sorted(LIVRES_BIBLIQUES.keys(), key=len, reverse=True))
+PATTERN_REF_STR = rf"(?:{NOMS_LIVRES_REGEX})\.?\s*\d+\s*:\s*[\d\s,\-–—]+"
+
+def oraliser_reference(texte_ref):
+    """Transforme 'Prov. 18:10' en 'Proverbes chapitre 18 verset 10'."""
+    match = re.search(rf"({NOMS_LIVRES_REGEX})\.?\s*(\d+)\s*:\s*([\d\s,\-–—]+)", texte_ref)
+    if not match:
+        return texte_ref
+
+    livre_abbr, chap, vers = match.groups()
+    nom_livre = LIVRES_BIBLIQUES.get(livre_abbr.strip(), livre_abbr)
+
+    vers_texte = vers.strip().replace("–", " à ").replace("-", " à ")
+    return f"{nom_livre} chapitre {chap} verset {vers_texte}"
+
+def traiter_references_bibliques(paragraphe):
+    """Supprime les références simples et oralise celles accompagnant une citation."""
+    a_citation = bool(re.search(r'[“"«].+?[”"»]', paragraphe))
+
+    def replacer(match):
+        texte_complet = match.group(0)
+        if a_citation:
+            return oraliser_reference(texte_complet)
+        return ""
+
+    pattern_complet = rf"(?:[\(\[—–-]\s*)?{PATTERN_REF_STR}(?:\s*[\)\]])?"
+    texte_traite = re.sub(pattern_complet, replacer, paragraphe)
+
+    texte_traite = re.sub(r'\s{2,}', ' ', texte_traite)
+    texte_traite = re.sub(r'\s+([,.;!?])', r'\1', texte_traite)
+    return texte_traite.strip()
 
 def nettoyer_nom_fichier(titre):
     propre = re.sub(r'[\\/*?:"<>|]', "", titre)
@@ -26,7 +75,7 @@ def nettoyer_nom_fichier(titre):
     return (propre[:50] or "audio_livre") + ".mp3"
 
 def nettoyer_texte(texte):
-    texte = re.sub(r'[\*\+#_~`\[\]\(\)\{\}]', ' ', texte)
+    texte = re.sub(r'[\*\+#_~`\[\]\{\}]', ' ', texte)
     texte = re.sub(r'\s+', ' ', texte)
     return texte.strip()
 
@@ -54,16 +103,19 @@ def extraire_et_decouper_article(url):
         if any(c in classes for c in ["caption", "pubRef", "qu"]):
             continue
 
-        texte = nettoyer_texte(el.get_text(" ", strip=True))
+        texte = el.get_text(" ", strip=True)
         if not texte or texte.lower().startswith(("photo", "illustration", "schéma", "carte")):
             continue
 
-        paragraphes.append(texte)
+        texte = traiter_references_bibliques(texte)
+        texte = nettoyer_texte(texte)
+
+        if texte:
+            paragraphes.append(texte)
 
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
-    # Regroupement en gros blocs (max 2200 caractères) -> 3 à 5 requêtes max
     chunks = []
     bloc_actuel = f"Titre de l'article : {nettoyer_texte(titre)}.\n\n"
 
@@ -80,7 +132,6 @@ def extraire_et_decouper_article(url):
     return titre, chunks
 
 async def generer_bloc_edge(texte, output_path, voice_name, tentatives=3):
-    """Génère un bloc audio avec réessai automatique."""
     for essai in range(1, tentatives + 1):
         try:
             communicate = edge_tts.Communicate(text=texte, voice=voice_name)
