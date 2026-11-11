@@ -30,12 +30,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Installer FFmpeg (assemblage audio)
-        run: |
-          export DEBIAN_FRONTEND=noninteractive
-          sudo apt-get update -y
-          sudo apt-get install -y ffmpeg
-
       - name: Installer les dépendances Python
         run: |
           pip install --upgrade pip
