@@ -1,29 +1,38 @@
-# 🎧 Audio-Livre — Convertisseur WOL en récits parlés
+# 🎧 Audio-Livre WOL vers Telegram
 
-Outil automatisé sur GitHub Actions permettant de convertir un article ou une biographie de `wol.jw.org` en un fichier MP3 lu par **Gemini 2.5 Flash** (mode narrateur), livré directement sur **Telegram**.
-
----
-
-## 🚀 Lancement rapide
-
-Cliquez sur le bouton ci-dessous pour ouvrir directement le lanceur, puis cliquez sur **Run workflow** à droite pour coller votre lien :
-
-[![Lancer un Audio-Livre](https://img.shields.io/badge/▶️_LANCER_UN_AUDIO--LIVRE-Coller_un_lien_WOL-2ea44f?style=for-the-badge&logo=github)](https://github.com/jordan64-labs/audio-livre/actions/workflows/generer_audio.yml)
+Ce dépôt contient un script d'automatisation (GitHub Actions) permettant de télécharger un article ou une biographie depuis [wol.jw.org](https://wol.jw.org), de le convertir en un fichier audio MP3 de haute qualité, et de l'envoyer directement sur un canal ou une discussion Telegram.
 
 ---
 
-## ✨ Fonctionnalités clés
-
-- **Accès en 1 clic** : Le bouton ci-dessus ouvre directement le workflow `Générer un Audio-Livre`.
-- **Mode Narrateur Gemini** : Intonation posée, chaleureuse et immersive.
-- **Choix de la voix** : Sélection directe lors du lancement (`Fenrir` masculine grave, `Aoede` féminine posée, `Charon`, `Kore`).
-- **Découpage intelligent** : Gère les biographies longues en les segmentant par paragraphes avant d'assembler le fichier `.mp3`.
+## 🚀 Fonctionnalités
+- **Extraction automatique** du contenu principal d'un article WOL en écartant les éléments superflus (notes, légendes de photos, etc.).
+- **Synthèse vocale rapide et stable** via `edge-tts`, découpant intelligemment le texte pour une génération instantanée.
+- **Envoi direct sur Telegram** sous forme de fichier audio avec titre et mise en forme.
 
 ---
 
-## 🛠️ Secrets requis dans GitHub
+## 🎙️ Choix des Voix du Narrateur
 
-Dans **Settings** > **Secrets and variables** > **Actions** :
-- `GEMINI_API_KEY` : Clé API Google Gemini Studio
-- `TELEGRAM_BOT_TOKEN` : Token du bot Telegram
-- `TELEGRAM_CHAT_ID` : Identifiant numérique Telegram
+Lors du lancement manuel du workflow, tu peux choisir entre 4 voix différentes selon le style de lecture souhaité :
+
+* **Fenrir** : Voix masculine grave, chaleureuse et posée (idéale pour une lecture de type livre audio / biographie).
+* **Aoede** : Voix féminine douce et posée, parfaite pour un ton fluide et naturel.
+* **Kore** : Voix féminine claire, lumineuse et rythmée, offrant un rendu très vivant.
+* **Charon** : Voix masculine profonde, sombre et très solennelle.
+
+---
+
+## ⚙️ Configuration des Secrets GitHub
+
+Pour que le script fonctionne, configure les secrets suivants dans ton dépôt (`Settings > Secrets and variables > Actions`) :
+- `TELEGRAM_BOT_TOKEN` : Le token de ton bot Telegram.
+- `TELEGRAM_CHAT_ID` : L'identifiant de ton chat ou canal Telegram.
+
+---
+
+## 🛠️ Utilisation
+
+1. Rends-toi dans l'onglet **Actions** de ton dépôt GitHub.
+2. Sélectionne le workflow **Générer un Audio-Livre**.
+3. Clique sur **Run workflow**.
+4. Renseigne l'URL de l'article WOL et choisis la voix de ton narrateur, puis valide !
