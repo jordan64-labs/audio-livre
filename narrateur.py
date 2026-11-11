@@ -17,8 +17,14 @@ def nettoyer_nom_fichier(titre):
     propre = propre.strip().replace(" ", "_")
     return (propre[:50] or "audio_livre") + ".mp3"
 
+def nettoyer_texte(texte):
+    # Enlève les caractères spéciaux résiduels et normalise les espaces
+    texte = re.sub(r'[\*\+#_~`\[\]\(\)\{\}]', ' ', texte)
+    texte = re.sub(r'\s+', ' ', texte)
+    return texte.strip()
+
 def extraire_et_decouper_article(url):
-    """Extrait l'article et le découpe en gros blocs de texte optimisés."""
+    """Extrait l'article et découpe le contenu en blocs sûrs."""
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     try:
         resp = requests.get(url, headers=headers, timeout=20)
@@ -43,8 +49,8 @@ def extraire_et_decouper_article(url):
             continue
 
         texte = el.get_text(" ", strip=True)
-        texte = re.sub(r'[\*\+#]', '', texte).strip()
-        if not texte or texte.startswith(("[Photo", "[Illustration", "[Schéma", "[Carte")):
+        texte = nettoyer_texte(texte)
+        if not texte or texte.lower().startswith(("photo", "illustration", "schéma", "carte")):
             continue
 
         paragraphes.append(texte)
@@ -52,33 +58,43 @@ def extraire_et_decouper_article(url):
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
+    # Découpage par paquets de 900 caractères max pour éviter NoAudioReceived
     chunks = []
-    bloc_actuel = f"Titre de l'article : {titre}.\n\n"
+    bloc_actuel = f"Titre : {nettoyer_texte(titre)}. "
 
     for p in paragraphes:
-        if len(bloc_actuel) + len(p) > 1800:
+        if len(bloc_actuel) + len(p) > 900:
             chunks.append(bloc_actuel.strip())
-            bloc_actuel = p + "\n\n"
+            bloc_actuel = p + " "
         else:
-            bloc_actuel += p + "\n\n"
+            bloc_actuel += p + " "
 
     if bloc_actuel.strip():
         chunks.append(bloc_actuel.strip())
 
     return titre, chunks
 
-async def generer_audio_morceau(texte, output_path):
-    """Génère l'audio d'un bloc avec Edge TTS."""
-    communicate = edge_tts.Communicate(
-        texte,
-        voice="fr-FR-RemyMultilingualNeural",
-        rate="+0%",
-        pitch="-1Hz"
-    )
-    await communicate.save(output_path)
+async def generer_audio_morceau_avec_retry(texte, output_path, tentatives=3):
+    """Génère l'audio avec réessai automatique pour contrer les micro-coupures."""
+    for essai in range(1, tentatives + 1):
+        try:
+            communicate = edge_tts.Communicate(
+                texte,
+                voice="fr-FR-RemyMultilingualNeural",
+                rate="+0%",
+                pitch="-1Hz"
+            )
+            await communicate.save(output_path)
+            if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+                return True
+        except Exception as e:
+            print(f"      Tentative {essai}/{tentatives} échouée ({e}), nouvelle tentative...")
+            await asyncio.sleep(1.5)
+            
+    raise RuntimeError(f"Échec définitif de synthèse vocale pour le bloc : {texte[:60]}...")
 
 def envoyer_telegram(file_path, titre):
-    """Envoie l'audio sur Telegram sous forme de message audio."""
+    """Envoie l'audio sur Telegram."""
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendAudio"
     with open(file_path, "rb") as audio_file:
         payload = {
@@ -106,29 +122,31 @@ async def main_async():
     print(f"📖 1/4 Analyse et découpage de l'article : {url}")
     titre, chunks = extraire_et_decouper_article(url)
     print(f"   Titre : {titre}")
-    print(f"   Nombre de parties à générer : {len(chunks)}")
+    print(f"   Nombre de segments à convertir : {len(chunks)}")
 
     nom_mp3 = nettoyer_nom_fichier(titre)
     temp_files = []
 
-    print("🎙️ 2/4 Synthèse vocale rapide...")
+    print("🎙️ 2/4 Synthèse vocale segmentée...")
     for i, chunk in enumerate(chunks, 1):
         temp_file = f"temp_{i}.mp3"
-        print(f"   -> Génération de la partie {i}/{len(chunks)}...")
-        await generer_audio_morceau(chunk, temp_file)
+        print(f"   -> Traitement du segment {i}/{len(chunks)}...")
+        await generer_audio_morceau_avec_retry(chunk, temp_file)
         temp_files.append(temp_file)
+        await asyncio.sleep(0.3)
 
-    print("💾 3/4 Assemblage final...")
+    print("💾 3/4 Assemblage du fichier MP3...")
     with open(nom_mp3, "wb") as outfile:
         for f in temp_files:
             with open(f, "rb") as infile:
                 outfile.write(infile.read())
-            os.remove(f)
+            if os.path.exists(f):
+                os.remove(f)
 
-    print("📲 4/4 Envoi de l'audio-livre sur Telegram...")
+    print("📲 4/4 Envoi du fichier à Telegram...")
     res = envoyer_telegram(nom_mp3, titre)
     if res.get("ok"):
-        print("✅ Terminé ! L'audio-livre est sur Telegram.")
+        print("✅ Terminé ! Audio envoyé avec succès.")
     else:
         raise RuntimeError(f"Erreur d'envoi Telegram : {res}")
 
