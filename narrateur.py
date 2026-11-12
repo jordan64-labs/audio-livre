@@ -12,15 +12,13 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Restauration de la voix naturelle de toute dernière génération (Remy)
 VOICES_MAP = {
-    "Fenrir": "fr-FR-RemyMultilingualNeural",      # Voix masculine ultra-naturelle et fluide
-    "Aoede": "fr-FR-VivienneMultilingualNeural",   # Voix féminine naturelle
-    "Charon": "fr-FR-HenriNeural",                 # Voix masculine classique et très grave
-    "Kore": "fr-FR-DeniseNeural"                   # Voix féminine classique
+    "Fenrir": "fr-FR-RemyMultilingualNeural",      
+    "Aoede": "fr-FR-VivienneMultilingualNeural",   
+    "Charon": "fr-FR-HenriNeural",                 
+    "Kore": "fr-FR-DeniseNeural"                   
 }
 
-# Dictionnaire exhaustif pour détecter et traduire toutes les références
 LIVRES_BIBLIQUES = {
     "Gen": "Genèse", "Ex": "Exode", "Lév": "Lévitique", "Lev": "Lévitique", "Nomb": "Nombres", "Nom": "Nombres",
     "Deut": "Deutéronome", "Jos": "Josué", "Jug": "Juges", "Ruth": "Ruth", "1 Sam": "1 Samuel", "2 Sam": "2 Samuel",
@@ -44,10 +42,8 @@ NOMS_LIVRES_REGEX = "|".join(re.escape(k) for k in CLES_LIVRES)
 PATTERN_REF = rf"(?:[\(\[—–-]\s*(?:voir\s+|lire\s+)?|,\s*)?(?P<livre>{NOMS_LIVRES_REGEX})\.?\s+(?P<chap>\d+)\s*:\s*(?P<vers>[\d\s,\-–—ab]+)(?:\s*\.?\s*[\)\]]|\s*\.)?"
 
 def traiter_references_bibliques(paragraphe):
-    # 1. Remplacer les espaces invisibles/insécables du web par des espaces normaux
     paragraphe = paragraphe.replace("\xa0", " ").replace("\u202f", " ")
     
-    # 2. Vérifier si TOUT le paragraphe contient au moins une citation
     a_citation = bool(re.search(r'[“"«]', paragraphe))
     
     def replacer(match):
@@ -57,21 +53,16 @@ def traiter_references_bibliques(paragraphe):
         nom_livre = LIVRES_BIBLIQUES.get(livre_brut, livre_brut)
         
         if a_citation:
-            # S'il y a une citation, on oralise la référence
             vers_oral = re.sub(r'\s*[-–—]\s*', ' à ', vers)
             vers_oral = re.sub(r'\s*,\s*', ', ', vers_oral)
             mot_verset = "versets" if "à" in vers_oral or "," in vers_oral else "verset"
             return f", {nom_livre} chapitre {chap} {mot_verset} {vers_oral}. "
         else:
-            # Aucune citation = référence purement indicative -> on la supprime
             return " "
 
     paragraphe = re.sub(PATTERN_REF, replacer, paragraphe)
-    
-    # 3. SÉCURITÉ ULTIME : Transformer tout "X:Y" restant en "X verset Y" pour empêcher le format heure
     paragraphe = re.sub(r'\b(\d+)\s*:\s*(\d+)\b', r'\1 verset \2', paragraphe)
     
-    # 4. Nettoyage propre de la ponctuation orpheline
     paragraphe = re.sub(r'\s+([,.;!?])', r'\1', paragraphe)
     paragraphe = re.sub(r'([,.;!?])\1+', r'\1', paragraphe)
     paragraphe = re.sub(r'\s{2,}', ' ', paragraphe)
@@ -84,7 +75,9 @@ def nettoyer_nom_fichier(titre):
     return (propre[:50] or "audio_livre") + ".mp3"
 
 def nettoyer_texte(texte):
-    texte = re.sub(r'[\*\+#_~`\[\]\{\}]', ' ', texte)
+    # Suppression agressive des caractères spéciaux invisibles ou problématiques
+    texte = re.sub(r'[\*\+#_~`\[\]\{\}\\\/]', ' ', texte)
+    texte = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', texte) 
     texte = re.sub(r'\s+', ' ', texte)
     return texte.strip()
 
@@ -116,17 +109,18 @@ def extraire_et_decouper_article(url):
         if not texte or texte.lower().startswith(("photo", "illustration", "schéma", "carte")):
             continue
 
-        # Application de notre nouvelle règle stricte
         texte = traiter_references_bibliques(texte)
         texte = nettoyer_texte(texte)
 
-        if texte:
+        # On ignore les paragraphes vides ou trop courts pour Edge TTS
+        if texte and len(texte) > 5:
             paragraphes.append(texte)
 
     if not paragraphes:
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
     chunks = []
+    # On évite que le premier bloc soit juste un titre très court
     bloc_actuel = f"Titre de l'article : {nettoyer_texte(titre)}.\n\n"
 
     for p in paragraphes:
@@ -138,6 +132,9 @@ def extraire_et_decouper_article(url):
 
     if bloc_actuel.strip():
         chunks.append(bloc_actuel.strip())
+
+    # Vérification finale : aucun bloc ne doit être trop court
+    chunks = [c for c in chunks if len(c.strip()) > 10]
 
     return titre, chunks
 
@@ -177,7 +174,6 @@ async def main_async():
         sys.exit(1)
 
     url = sys.argv[1].strip()
-    # Récupère la voix choisie ou met 'Fenrir' (qui pointera vers notre voix ultra naturelle)
     nom_voix_input = sys.argv[2].strip() if len(sys.argv) > 2 and sys.argv[2].strip() else "Fenrir"
     voix_edge = VOICES_MAP.get(nom_voix_input, "fr-FR-RemyMultilingualNeural")
 
