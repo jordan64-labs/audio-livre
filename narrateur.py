@@ -75,9 +75,11 @@ def nettoyer_nom_fichier(titre):
     return (propre[:50] or "audio_livre") + ".mp3"
 
 def nettoyer_texte(texte):
-    # Suppression agressive des caractères spéciaux invisibles ou problématiques
+    # Remplacement des symboles qui cassent le SSML Microsoft
+    texte = texte.replace('&', ' et ').replace('<', ' ').replace('>', ' ')
     texte = re.sub(r'[\*\+#_~`\[\]\{\}\\\/]', ' ', texte)
-    texte = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', '', texte) 
+    # CORRECTION : On ne supprime que les caractères de contrôle invisibles, on préserve les accents !
+    texte = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', texte) 
     texte = re.sub(r'\s+', ' ', texte)
     return texte.strip()
 
@@ -112,7 +114,6 @@ def extraire_et_decouper_article(url):
         texte = traiter_references_bibliques(texte)
         texte = nettoyer_texte(texte)
 
-        # On ignore les paragraphes vides ou trop courts pour Edge TTS
         if texte and len(texte) > 5:
             paragraphes.append(texte)
 
@@ -120,20 +121,18 @@ def extraire_et_decouper_article(url):
         raise RuntimeError("Aucun paragraphe de texte exploitable trouvé.")
 
     chunks = []
-    # On évite que le premier bloc soit juste un titre très court
-    bloc_actuel = f"Titre de l'article : {nettoyer_texte(titre)}.\n\n"
+    bloc_actuel = f"Titre de l'article : {nettoyer_texte(titre)}. "
 
     for p in paragraphes:
-        if len(bloc_actuel) + len(p) > 2200:
+        if len(bloc_actuel) + len(p) > 800:
             chunks.append(bloc_actuel.strip())
-            bloc_actuel = p + "\n\n"
+            bloc_actuel = p + " "
         else:
-            bloc_actuel += p + "\n\n"
+            bloc_actuel += p + " "
 
     if bloc_actuel.strip():
         chunks.append(bloc_actuel.strip())
 
-    # Vérification finale : aucun bloc ne doit être trop court
     chunks = [c for c in chunks if len(c.strip()) > 10]
 
     return titre, chunks
@@ -192,7 +191,7 @@ async def main_async():
         print(f"   -> Bloc {i}/{len(chunks)}...")
         await generer_bloc_edge(chunk, temp_file, voix_edge)
         temp_files.append(temp_file)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
 
     print("💾 3/4 Assemblage du MP3...")
     with open(nom_mp3, "wb") as outfile:
