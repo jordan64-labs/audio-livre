@@ -12,18 +12,20 @@ load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
+# Restauration de la voix naturelle de toute dernière génération (Remy)
 VOICES_MAP = {
-    "Fenrir": "fr-FR-HenriNeural",
-    "Aoede": "fr-FR-DeniseNeural",
-    "Charon": "fr-FR-RemyMultilingualNeural",
-    "Kore": "fr-FR-VivienneMultilingualNeural"
+    "Fenrir": "fr-FR-RemyMultilingualNeural",      # Voix masculine ultra-naturelle et fluide
+    "Aoede": "fr-FR-VivienneMultilingualNeural",   # Voix féminine naturelle
+    "Charon": "fr-FR-HenriNeural",                 # Voix masculine classique et très grave
+    "Kore": "fr-FR-DeniseNeural"                   # Voix féminine classique
 }
 
+# Dictionnaire exhaustif pour détecter et traduire toutes les références
 LIVRES_BIBLIQUES = {
     "Gen": "Genèse", "Ex": "Exode", "Lév": "Lévitique", "Lev": "Lévitique", "Nomb": "Nombres", "Nom": "Nombres",
     "Deut": "Deutéronome", "Jos": "Josué", "Jug": "Juges", "Ruth": "Ruth", "1 Sam": "1 Samuel", "2 Sam": "2 Samuel",
     "1 Rois": "1 Rois", "2 Rois": "2 Rois", "1 Chron": "1 Chroniques", "2 Chron": "2 Chroniques", "Esd": "Esdras",
-    "Néh": "Néhémie", "Neh": "Néhémie", "Esth": "Esther", "Job": "Job", "Ps": "Psaume", "Psa": "Psaume",
+    "Néh": "Néhémie", "Neh": "Néhémie", "Esth": "Esther", "Job": "Job", "Ps": "Psaumes", "Psa": "Psaumes", "Psaume": "Psaumes",
     "Prov": "Proverbes", "Eccl": "Ecclésiaste", "Chant": "Chant de Salomon", "Is": "Isaïe", "Isa": "Isaïe",
     "Jér": "Jérémie", "Jer": "Jérémie", "Lam": "Lamentations", "Ézéch": "Ézéchiel", "Ezech": "Ézéchiel",
     "Dan": "Daniel", "Os": "Osée", "Joël": "Joël", "Joel": "Joël", "Amos": "Amos", "Abd": "Abdias",
@@ -37,57 +39,44 @@ LIVRES_BIBLIQUES = {
     "3 Jean": "3 Jean", "Jude": "Jude", "Rév": "Révélation", "Rev": "Révélation", "Apoc": "Apocalypse"
 }
 
-NOMS_LIVRES_REGEX = "|".join(re.escape(k) for k in sorted(LIVRES_BIBLIQUES.keys(), key=len, reverse=True))
-PATTERN_REF_CORE = rf"({NOMS_LIVRES_REGEX})\.?\s*(\d+)\s*:\s*(\d+(?:\s*[-–—]\s*\d+)?(?:\s*,\s*\d+(?:\s*[-–—]\s*\d+)?)*)"
-PATTERN_REF_BLOC = rf"(?:[\(\[—–-]\s*)?{PATTERN_REF_CORE}(?:\s*\.?\s*[\)\]]|\s*\.)?"
-
-def normaliser_espaces(texte):
-    """Remplace les espaces insécables (fréquents sur wol.jw.org) par des espaces standards."""
-    return texte.replace("\xa0", " ").replace("\u202f", " ")
-
-def oraliser_reference(match):
-    """Transforme 'Prov. 18:10.' en 'Proverbes chapitre 18 verset 10.'."""
-    livre_abbr, chap, vers = match.group(1), match.group(2), match.group(3)
-    nom_livre = LIVRES_BIBLIQUES.get(livre_abbr.strip(), livre_abbr.strip())
-
-    vers_propre = vers.strip()
-    est_pluriel = bool(re.search(r'[-–—,]', vers_propre))
-    mot_verset = "versets" if est_pluriel else "verset"
-
-    vers_oral = re.sub(r'\s*[-–—]\s*', ' à ', vers_propre)
-    vers_oral = re.sub(r'\s*,\s*', ', ', vers_oral)
-
-    return f", {nom_livre} chapitre {chap} {mot_verset} {vers_oral}."
+CLES_LIVRES = sorted(list(set(list(LIVRES_BIBLIQUES.keys()) + list(LIVRES_BIBLIQUES.values()))), key=len, reverse=True)
+NOMS_LIVRES_REGEX = "|".join(re.escape(k) for k in CLES_LIVRES)
+PATTERN_REF = rf"(?:[\(\[—–-]\s*(?:voir\s+|lire\s+)?|,\s*)?(?P<livre>{NOMS_LIVRES_REGEX})\.?\s+(?P<chap>\d+)\s*:\s*(?P<vers>[\d\s,\-–—ab]+)(?:\s*\.?\s*[\)\]]|\s*\.)?"
 
 def traiter_references_bibliques(paragraphe):
-    """
-    Analyse phrase par phrase :
-    - Phrase avec citation entre guillemets -> lit la référence à voix haute.
-    - Phrase sans citation -> supprime complètement la référence d'appui.
-    """
-    paragraphe = normaliser_espaces(paragraphe)
-
-    # Découpe en phrases tout en conservant les délimiteurs
-    segments = re.split(r'(?<=[.!?])\s+(?=[A-ZÉÈÊÀÂÎÔÛÇ“«"])', paragraphe)
-    phrases_traitees = []
-
-    for phrase in segments:
-        contient_citation = bool(re.search(r'[“"«][^”"»]+[”"»]', phrase))
-
-        if contient_citation:
-            phrase_mod = re.sub(PATTERN_REF_BLOC, oraliser_reference, phrase)
+    # 1. Remplacer les espaces invisibles/insécables du web par des espaces normaux
+    paragraphe = paragraphe.replace("\xa0", " ").replace("\u202f", " ")
+    
+    # 2. Vérifier si TOUT le paragraphe contient au moins une citation
+    a_citation = bool(re.search(r'[“"«]', paragraphe))
+    
+    def replacer(match):
+        livre_brut = match.group('livre').strip()
+        chap = match.group('chap').strip()
+        vers = match.group('vers').strip()
+        nom_livre = LIVRES_BIBLIQUES.get(livre_brut, livre_brut)
+        
+        if a_citation:
+            # S'il y a une citation, on oralise la référence
+            vers_oral = re.sub(r'\s*[-–—]\s*', ' à ', vers)
+            vers_oral = re.sub(r'\s*,\s*', ', ', vers_oral)
+            mot_verset = "versets" if "à" in vers_oral or "," in vers_oral else "verset"
+            return f", {nom_livre} chapitre {chap} {mot_verset} {vers_oral}. "
         else:
-            phrase_mod = re.sub(PATTERN_REF_BLOC, "", phrase)
+            # Aucune citation = référence purement indicative -> on la supprime
+            return " "
 
-        # Nettoyage de la ponctuation résiduelle
-        phrase_mod = re.sub(r'\s+([,.;!?])', r'\1', phrase_mod)
-        phrase_mod = re.sub(r'([,.;!?])\s*\1+', r'\1', phrase_mod)
-        phrase_mod = re.sub(r'\s{2,}', ' ', phrase_mod).strip()
-
-        if phrase_mod:
-            phrases_traitees.append(phrase_mod)
-
-    return " ".join(phrases_traitees)
+    paragraphe = re.sub(PATTERN_REF, replacer, paragraphe)
+    
+    # 3. SÉCURITÉ ULTIME : Transformer tout "X:Y" restant en "X verset Y" pour empêcher le format heure
+    paragraphe = re.sub(r'\b(\d+)\s*:\s*(\d+)\b', r'\1 verset \2', paragraphe)
+    
+    # 4. Nettoyage propre de la ponctuation orpheline
+    paragraphe = re.sub(r'\s+([,.;!?])', r'\1', paragraphe)
+    paragraphe = re.sub(r'([,.;!?])\1+', r'\1', paragraphe)
+    paragraphe = re.sub(r'\s{2,}', ' ', paragraphe)
+    
+    return paragraphe.strip()
 
 def nettoyer_nom_fichier(titre):
     propre = re.sub(r'[\\/*?:"<>|]', "", titre)
@@ -115,7 +104,7 @@ def extraire_et_decouper_article(url):
         raise RuntimeError("Contenu principal de l'article introuvable sur cette URL.")
 
     h1 = article.find("h1") or soup.find("h1")
-    titre = normaliser_espaces(h1.get_text(strip=True)) if h1 else "Biographie Audio"
+    titre = h1.get_text(strip=True) if h1 else "Biographie Audio"
 
     paragraphes = []
     for el in article.find_all(["h2", "h3", "p"]):
@@ -127,6 +116,7 @@ def extraire_et_decouper_article(url):
         if not texte or texte.lower().startswith(("photo", "illustration", "schéma", "carte")):
             continue
 
+        # Application de notre nouvelle règle stricte
         texte = traiter_references_bibliques(texte)
         texte = nettoyer_texte(texte)
 
@@ -187,8 +177,9 @@ async def main_async():
         sys.exit(1)
 
     url = sys.argv[1].strip()
-    nom_voix_input = sys.argv[2].strip() if len(sys.argv) > 2 else "Fenrir"
-    voix_edge = VOICES_MAP.get(nom_voix_input, "fr-FR-HenriNeural")
+    # Récupère la voix choisie ou met 'Fenrir' (qui pointera vers notre voix ultra naturelle)
+    nom_voix_input = sys.argv[2].strip() if len(sys.argv) > 2 and sys.argv[2].strip() else "Fenrir"
+    voix_edge = VOICES_MAP.get(nom_voix_input, "fr-FR-RemyMultilingualNeural")
 
     print(f"📖 1/4 Analyse de l'article : {url}")
     print(f"🎙️ Voix sélectionnée : {nom_voix_input} ({voix_edge})")
