@@ -38,36 +38,56 @@ LIVRES_BIBLIQUES = {
 }
 
 NOMS_LIVRES_REGEX = "|".join(re.escape(k) for k in sorted(LIVRES_BIBLIQUES.keys(), key=len, reverse=True))
-PATTERN_REF_STR = rf"(?:{NOMS_LIVRES_REGEX})\.?\s*\d+\s*:\s*[\d\s,\-–—]+"
+PATTERN_REF_CORE = rf"({NOMS_LIVRES_REGEX})\.?\s*(\d+)\s*:\s*(\d+(?:\s*[-–—]\s*\d+)?(?:\s*,\s*\d+(?:\s*[-–—]\s*\d+)?)*)"
+PATTERN_REF_BLOC = rf"(?:[\(\[—–-]\s*)?{PATTERN_REF_CORE}(?:\s*\.?\s*[\)\]]|\s*\.)?"
 
-def oraliser_reference(texte_ref):
-    """Transforme 'Prov. 18:10' en 'Proverbes chapitre 18 verset 10'."""
-    match = re.search(rf"({NOMS_LIVRES_REGEX})\.?\s*(\d+)\s*:\s*([\d\s,\-–—]+)", texte_ref)
-    if not match:
-        return texte_ref
+def normaliser_espaces(texte):
+    """Remplace les espaces insécables (fréquents sur wol.jw.org) par des espaces standards."""
+    return texte.replace("\xa0", " ").replace("\u202f", " ")
 
-    livre_abbr, chap, vers = match.groups()
-    nom_livre = LIVRES_BIBLIQUES.get(livre_abbr.strip(), livre_abbr)
+def oraliser_reference(match):
+    """Transforme 'Prov. 18:10.' en 'Proverbes chapitre 18 verset 10.'."""
+    livre_abbr, chap, vers = match.group(1), match.group(2), match.group(3)
+    nom_livre = LIVRES_BIBLIQUES.get(livre_abbr.strip(), livre_abbr.strip())
 
-    vers_texte = vers.strip().replace("–", " à ").replace("-", " à ")
-    return f"{nom_livre} chapitre {chap} verset {vers_texte}"
+    vers_propre = vers.strip()
+    est_pluriel = bool(re.search(r'[-–—,]', vers_propre))
+    mot_verset = "versets" if est_pluriel else "verset"
+
+    vers_oral = re.sub(r'\s*[-–—]\s*', ' à ', vers_propre)
+    vers_oral = re.sub(r'\s*,\s*', ', ', vers_oral)
+
+    return f", {nom_livre} chapitre {chap} {mot_verset} {vers_oral}."
 
 def traiter_references_bibliques(paragraphe):
-    """Supprime les références simples et oralise celles accompagnant une citation."""
-    a_citation = bool(re.search(r'[“"«].+?[”"»]', paragraphe))
+    """
+    Analyse phrase par phrase :
+    - Phrase avec citation entre guillemets -> lit la référence à voix haute.
+    - Phrase sans citation -> supprime complètement la référence d'appui.
+    """
+    paragraphe = normaliser_espaces(paragraphe)
 
-    def replacer(match):
-        texte_complet = match.group(0)
-        if a_citation:
-            return oraliser_reference(texte_complet)
-        return ""
+    # Découpe en phrases tout en conservant les délimiteurs
+    segments = re.split(r'(?<=[.!?])\s+(?=[A-ZÉÈÊÀÂÎÔÛÇ“«"])', paragraphe)
+    phrases_traitees = []
 
-    pattern_complet = rf"(?:[\(\[—–-]\s*)?{PATTERN_REF_STR}(?:\s*[\)\]])?"
-    texte_traite = re.sub(pattern_complet, replacer, paragraphe)
+    for phrase in segments:
+        contient_citation = bool(re.search(r'[“"«][^”"»]+[”"»]', phrase))
 
-    texte_traite = re.sub(r'\s{2,}', ' ', texte_traite)
-    texte_traite = re.sub(r'\s+([,.;!?])', r'\1', texte_traite)
-    return texte_traite.strip()
+        if contient_citation:
+            phrase_mod = re.sub(PATTERN_REF_BLOC, oraliser_reference, phrase)
+        else:
+            phrase_mod = re.sub(PATTERN_REF_BLOC, "", phrase)
+
+        # Nettoyage de la ponctuation résiduelle
+        phrase_mod = re.sub(r'\s+([,.;!?])', r'\1', phrase_mod)
+        phrase_mod = re.sub(r'([,.;!?])\s*\1+', r'\1', phrase_mod)
+        phrase_mod = re.sub(r'\s{2,}', ' ', phrase_mod).strip()
+
+        if phrase_mod:
+            phrases_traitees.append(phrase_mod)
+
+    return " ".join(phrases_traitees)
 
 def nettoyer_nom_fichier(titre):
     propre = re.sub(r'[\\/*?:"<>|]', "", titre)
@@ -95,7 +115,7 @@ def extraire_et_decouper_article(url):
         raise RuntimeError("Contenu principal de l'article introuvable sur cette URL.")
 
     h1 = article.find("h1") or soup.find("h1")
-    titre = h1.get_text(strip=True) if h1 else "Biographie Audio"
+    titre = normaliser_espaces(h1.get_text(strip=True)) if h1 else "Biographie Audio"
 
     paragraphes = []
     for el in article.find_all(["h2", "h3", "p"]):
