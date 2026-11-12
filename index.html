@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Audio WOL</title>
+    <style>
+        :root {
+            --bg-color: #f3f4f6;
+            --card-bg: #ffffff;
+            --primary: #0088cc; /* Bleu Telegram */
+            --primary-hover: #0077b3;
+            --text-main: #1f2937;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+            padding: 20px;
+            padding-top: 10vh;
+        }
+
+        .card {
+            background: var(--card-bg);
+            width: 100%;
+            max-width: 400px;
+            border-radius: 20px;
+            padding: 30px 24px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 600;
+            text-align: center;
+            margin-bottom: 24px;
+            color: var(--text-main);
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input[type="url"], input[type="password"], select {
+            width: 100%;
+            padding: 14px 16px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            font-size: 15px;
+            background-color: #f9fafb;
+            color: var(--text-main);
+            outline: none;
+            transition: border 0.2s, box-shadow 0.2s;
+            appearance: none;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(0, 136, 204, 0.1);
+            background-color: #fff;
+        }
+
+        button {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            margin-top: 10px;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        button:disabled {
+            background-color: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 16px;
+            text-align: center;
+            font-size: 14px;
+            font-weight: 500;
+            min-height: 20px;
+        }
+        
+        .success { color: #10b981; }
+        .error { color: #ef4444; }
+        .loading { color: var(--primary); }
+
+        .settings-toggle {
+            text-align: center;
+            margin-top: 24px;
+            font-size: 13px;
+            color: var(--text-muted);
+            cursor: pointer;
+            text-decoration: underline;
+        }
+
+        #settings-section {
+            display: none;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>🎧 Audio-Livre WOL</h1>
+
+        <div class="form-group">
+            <label for="url">Lien de l'article</label>
+            <input type="url" id="url" placeholder="https://wol.jw.org/..." required>
+        </div>
+
+        <div class="form-group">
+            <label for="voix">Voix du narrateur</label>
+            <select id="voix">
+                <option value="Fenrir">Fenrir (Naturelle & Fluide) - Défaut</option>
+                <option value="Aoede">Aoede (Féminine Naturelle)</option>
+                <option value="Charon">Charon (Masculine Grave)</option>
+                <option value="Kore">Kore (Féminine Classique)</option>
+            </select>
+        </div>
+
+        <button id="btn-submit" onclick="lancerWorkflow()">Générer l'audio</button>
+        
+        <div id="status-msg" class="status"></div>
+
+        <div class="settings-toggle" onclick="toggleSettings()">⚙️ Configuration API</div>
+
+        <div id="settings-section">
+            <div class="form-group">
+                <label for="github-token">Token GitHub (Sauvegardé localement)</label>
+                <input type="password" id="github-token" placeholder="ghp_xxxxxxxxxxxxxxxxx">
+            </div>
+            <div class="form-group">
+                <label for="github-repo">Dépôt (Utilisateur/Repo)</label>
+                <input type="text" id="github-repo" placeholder="TonPseudo/audio-livre">
+            </div>
+            <button style="padding: 10px; font-size: 14px; background: #4b5563;" onclick="sauvegarderConfig()">Enregistrer</button>
+        </div>
+    </div>
+
+    <script>
+        // Charger la configuration au démarrage
+        window.onload = () => {
+            const token = localStorage.getItem('gh_token');
+            const repo = localStorage.getItem('gh_repo');
+            if (token) document.getElementById('github-token').value = token;
+            if (repo) document.getElementById('github-repo').value = repo;
+            else document.getElementById('settings-section').style.display = 'block';
+        };
+
+        function toggleSettings() {
+            const sec = document.getElementById('settings-section');
+            sec.style.display = sec.style.display === 'none' || sec.style.display === '' ? 'block' : 'none';
+        }
+
+        function sauvegarderConfig() {
+            localStorage.setItem('gh_token', document.getElementById('github-token').value.trim());
+            localStorage.setItem('gh_repo', document.getElementById('github-repo').value.trim());
+            toggleSettings();
+            afficherStatut("Configuration sauvegardée ✅", "success");
+        }
+
+        function afficherStatut(message, type) {
+            const msgDiv = document.getElementById('status-msg');
+            msgDiv.textContent = message;
+            msgDiv.className = 'status ' + type;
+        }
+
+        async function lancerWorkflow() {
+            const urlArticle = document.getElementById('url').value.trim();
+            const voix = document.getElementById('voix').value;
+            const token = localStorage.getItem('gh_token');
+            const repo = localStorage.getItem('gh_repo');
+
+            if (!urlArticle) return afficherStatut("Veuillez entrer un lien.", "error");
+            if (!token || !repo) return afficherStatut("Veuillez configurer l'API (⚙️).", "error");
+
+            const btn = document.getElementById('btn-submit');
+            btn.disabled = true;
+            btn.textContent = "Lancement en cours...";
+            afficherStatut("Communication avec GitHub...", "loading");
+
+            try {
+                // Le nom du fichier yml doit correspondre exactement à celui dans .github/workflows/
+                const apiUrl = `https://api.github.com/repos/${repo}/actions/workflows/generer_audio.yml/dispatches`;
+                
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        ref: 'main',
+                        inputs: {
+                            url: urlArticle,
+                            voix: voix
+                        }
+                    })
+                });
+
+                if (response.ok) {
+                    afficherStatut("✅ Ordre envoyé ! L'audio arrive sur Telegram d'ici 30s.", "success");
+                    document.getElementById('url').value = ''; // On vide la case
+                } else {
+                    const err = await response.json();
+                    afficherStatut(`Erreur: ${err.message || response.statusText}`, "error");
+                }
+            } catch (error) {
+                afficherStatut("Erreur réseau.", "error");
+            } finally {
+                btn.disabled = false;
+                btn.textContent = "Générer l'audio";
+            }
+        }
+    </script>
+</body>
+</html>
